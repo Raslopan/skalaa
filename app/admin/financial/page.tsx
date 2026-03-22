@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { properties, reservations } from "@/lib/mock-data";
+import useSWR from "swr";
 import {
   Card,
   CardContent,
@@ -34,7 +34,11 @@ import {
   Building2,
   CreditCard,
   PieChart,
+  Loader2,
 } from "lucide-react";
+import type { Property, Reservation } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const monthlyRevenue = [
   { month: "Jan", revenue: 8500, expenses: 2100, bookings: 12 },
@@ -57,21 +61,24 @@ export default function FinancialPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState("6months");
 
+  const { data: properties, isLoading: propertiesLoading } = useSWR<Property[]>("/api/properties", fetcher);
+  const { data: reservations, isLoading: reservationsLoading } = useSWR<Reservation[]>("/api/reservations", fetcher);
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const totalRevenue = reservations.reduce((sum, r) => sum + r.totalPrice, 0);
-  const avgBookingValue = totalRevenue / reservations.length;
+  const totalRevenue = (reservations || []).reduce((sum, r) => sum + Number(r.total_price), 0);
+  const avgBookingValue = (reservations?.length || 0) > 0 ? totalRevenue / reservations!.length : 0;
   const totalExpenses = expenseCategories.reduce((sum, e) => sum + e.amount, 0);
   const netProfit = totalRevenue - totalExpenses;
-  const profitMargin = ((netProfit / totalRevenue) * 100).toFixed(1);
+  const profitMargin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : "0";
 
-  const revenueByProperty = properties.map((property) => {
-    const propertyReservations = reservations.filter(
-      (r) => r.propertyId === property.id
+  const revenueByProperty = (properties || []).map((property) => {
+    const propertyReservations = (reservations || []).filter(
+      (r) => r.property_id === property.id
     );
-    const revenue = propertyReservations.reduce((sum, r) => sum + r.totalPrice, 0);
+    const revenue = propertyReservations.reduce((sum, r) => sum + Number(r.total_price), 0);
     const bookings = propertyReservations.length;
     return {
       ...property,
@@ -81,10 +88,10 @@ export default function FinancialPage() {
     };
   });
 
-  if (!mounted) {
+  if (!mounted || propertiesLoading || reservationsLoading) {
     return (
-      <div className="p-6 lg:p-8">
-        <div className="h-96 animate-pulse rounded-lg bg-muted" />
+      <div className="flex items-center justify-center p-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -266,7 +273,7 @@ export default function FinancialPage() {
                   .sort((a, b) => b.revenue - a.revenue)
                   .map((property) => {
                     const performanceScore =
-                      property.revenue > 0
+                      property.revenue > 0 && totalRevenue > 0
                         ? Math.min(
                             100,
                             Math.round((property.revenue / totalRevenue) * 100 * 4)

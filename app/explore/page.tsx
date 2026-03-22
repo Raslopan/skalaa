@@ -1,34 +1,46 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { properties } from "@/lib/mock-data";
+import useSWR from "swr";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Users, Bed, Bath, Search } from "lucide-react"; // Tady byl chybějící Search
+import { MapPin, Users, Bed, Bath, Search, Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
+import type { Property } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 function ExploreContent() {
   const searchParams = useSearchParams();
+  const { data: properties, isLoading } = useSWR<Property[]>("/api/properties", fetcher);
   
   const locationQuery = searchParams.get("location")?.toLowerCase() || "";
   const guestsQuery = parseInt(searchParams.get("guests") || "0");
 
-  const filteredProperties = properties.filter((item) => {
+  const filteredProperties = (properties || []).filter((item) => {
     const matchLocation = item.location.toLowerCase().includes(locationQuery) || 
                          item.name.toLowerCase().includes(locationQuery);
-    const matchGuests = guestsQuery > 0 ? item.maxGuests >= guestsQuery : true;
+    const matchGuests = guestsQuery > 0 ? item.max_guests >= guestsQuery : true;
     return matchLocation && matchGuests;
   });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Výsledky hledání</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Search Results</h1>
         <p className="text-muted-foreground mt-1">
-          {locationQuery ? `Ubytování v lokalitě: ${locationQuery}` : "Všechna ubytování"} 
-          ({filteredProperties.length} nalezeno)
+          {locationQuery ? `Accommodations in: ${locationQuery}` : "All accommodations"} 
+          ({filteredProperties.length} found)
         </p>
       </div>
 
@@ -57,12 +69,12 @@ function ExploreContent() {
                     {property.name}
                   </h2>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                    <span className="flex items-center gap-1"><Users className="h-4 w-4" /> {property.maxGuests}</span>
+                    <span className="flex items-center gap-1"><Users className="h-4 w-4" /> {property.max_guests}</span>
                     <span className="flex items-center gap-1"><Bed className="h-4 w-4" /> {property.bedrooms}</span>
                     <span className="flex items-center gap-1"><Bath className="h-4 w-4" /> {property.bathrooms}</span>
                   </div>
                   <div className="flex justify-between items-center border-t pt-4">
-                    <p className="text-2xl font-bold">${property.pricePerNight}<span className="text-sm font-normal text-muted-foreground">/noc</span></p>
+                    <p className="text-2xl font-bold">${property.price_per_night}<span className="text-sm font-normal text-muted-foreground">/night</span></p>
                     <Badge variant="outline" className="border-primary text-primary">Detail</Badge>
                   </div>
                 </CardContent>
@@ -73,9 +85,9 @@ function ExploreContent() {
       ) : (
         <div className="text-center py-24 border-2 border-dashed rounded-3xl bg-muted/30">
           <Search className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-xl font-semibold">Žádné výsledky</h3>
-          <p className="text-muted-foreground">Zkuste změnit lokalitu nebo počet hostů.</p>
-          <Link href="/" className="mt-4 inline-block text-primary underline">Zpět na úvod</Link>
+          <h3 className="text-xl font-semibold">No results</h3>
+          <p className="text-muted-foreground">Try changing your location or guest count.</p>
+          <Link href="/" className="mt-4 inline-block text-primary underline">Back to home</Link>
         </div>
       )}
     </div>
@@ -85,7 +97,7 @@ function ExploreContent() {
 export default function ExplorePage() {
   return (
     <div className="min-h-screen bg-background pb-20 pt-10">
-      <Suspense fallback={<div className="text-center py-20">Načítání...</div>}>
+      <Suspense fallback={<div className="text-center py-20">Loading...</div>}>
         <ExploreContent />
       </Suspense>
     </div>

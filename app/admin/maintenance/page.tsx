@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { properties } from "@/lib/mock-data";
+import useSWR, { mutate } from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,78 +39,12 @@ import {
   Building2,
   Calendar,
   User,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
+import type { Property, MaintenanceTask } from "@/lib/queries";
 
-interface MaintenanceTask {
-  id: string;
-  propertyId: string;
-  title: string;
-  description: string;
-  priority: "low" | "medium" | "high" | "urgent";
-  status: "pending" | "in-progress" | "completed";
-  assignee: string;
-  dueDate: Date;
-  createdAt: Date;
-}
-
-const initialTasks: MaintenanceTask[] = [
-  {
-    id: "task-1",
-    propertyId: "prop-1",
-    title: "AC Unit Maintenance",
-    description: "Annual HVAC inspection and filter replacement",
-    priority: "medium",
-    status: "pending",
-    assignee: "John Technician",
-    dueDate: new Date(2026, 2, 20),
-    createdAt: new Date(2026, 2, 10),
-  },
-  {
-    id: "task-2",
-    propertyId: "prop-2",
-    title: "Hot Tub Repair",
-    description: "Fix water heater malfunction",
-    priority: "high",
-    status: "in-progress",
-    assignee: "Mike Plumber",
-    dueDate: new Date(2026, 2, 18),
-    createdAt: new Date(2026, 2, 12),
-  },
-  {
-    id: "task-3",
-    propertyId: "prop-3",
-    title: "Smoke Detector Check",
-    description: "Replace batteries and test all smoke detectors",
-    priority: "urgent",
-    status: "pending",
-    assignee: "Sarah Safety",
-    dueDate: new Date(2026, 2, 16),
-    createdAt: new Date(2026, 2, 14),
-  },
-  {
-    id: "task-4",
-    propertyId: "prop-4",
-    title: "Deck Staining",
-    description: "Annual deck maintenance and staining",
-    priority: "low",
-    status: "completed",
-    assignee: "Tom Carpenter",
-    dueDate: new Date(2026, 2, 15),
-    createdAt: new Date(2026, 2, 5),
-  },
-  {
-    id: "task-5",
-    propertyId: "prop-1",
-    title: "Pool Cleaning",
-    description: "Weekly pool maintenance and chemical balancing",
-    priority: "medium",
-    status: "completed",
-    assignee: "Pool Service Co.",
-    dueDate: new Date(2026, 2, 14),
-    createdAt: new Date(2026, 2, 7),
-  },
-];
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const priorityColors = {
   low: "bg-blue-100 text-blue-800",
@@ -121,82 +55,97 @@ const priorityColors = {
 
 const statusColors = {
   pending: "bg-gray-100 text-gray-800",
-  "in-progress": "bg-purple-100 text-purple-800",
+  in_progress: "bg-purple-100 text-purple-800",
   completed: "bg-green-100 text-green-800",
 };
 
 const statusIcons = {
   pending: Clock,
-  "in-progress": Wrench,
+  in_progress: Wrench,
   completed: CheckCircle2,
 };
 
 export default function MaintenancePage() {
   const [mounted, setMounted] = useState(false);
-  const [tasks, setTasks] = useState<MaintenanceTask[]>(initialTasks);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterProperty, setFilterProperty] = useState<string>("all");
   const [newTask, setNewTask] = useState({
-    propertyId: "",
+    property_id: "",
     title: "",
     description: "",
     priority: "medium" as MaintenanceTask["priority"],
-    assignee: "",
   });
+
+  const { data: tasks, isLoading: tasksLoading } = useSWR<MaintenanceTask[]>("/api/maintenance", fetcher);
+  const { data: properties } = useSWR<Property[]>("/api/properties", fetcher);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const handleAddTask = () => {
-    const task: MaintenanceTask = {
-      id: `task-${Date.now()}`,
-      ...newTask,
-      status: "pending",
-      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      createdAt: new Date(),
-    };
-    setTasks((prev) => [task, ...prev]);
-    setIsDialogOpen(false);
-    setNewTask({
-      propertyId: "",
-      title: "",
-      description: "",
-      priority: "medium",
-      assignee: "",
-    });
+  const handleAddTask = async () => {
+    try {
+      const response = await fetch("/api/maintenance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newTask,
+          status: "pending",
+          due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        }),
+      });
+      if (response.ok) {
+        mutate("/api/maintenance");
+        setIsDialogOpen(false);
+        setNewTask({
+          property_id: "",
+          title: "",
+          description: "",
+          priority: "medium",
+        });
+      }
+    } catch (error) {
+      console.error("Error creating task:", error);
+    }
   };
 
-  const updateTaskStatus = (taskId: string, status: MaintenanceTask["status"]) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, status } : task
-      )
-    );
+  const updateTaskStatus = async (taskId: string, status: MaintenanceTask["status"]) => {
+    try {
+      const response = await fetch("/api/maintenance", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: taskId, status }),
+      });
+      if (response.ok) {
+        mutate("/api/maintenance");
+      }
+    } catch (error) {
+      console.error("Error updating task:", error);
+    }
   };
 
-  const filteredTasks = tasks.filter((task) => {
+  const filteredTasks = (tasks || []).filter((task) => {
     if (filterStatus !== "all" && task.status !== filterStatus) return false;
-    if (filterProperty !== "all" && task.propertyId !== filterProperty) return false;
+    if (filterProperty !== "all" && task.property_id !== filterProperty) return false;
     return true;
   });
 
   const getPropertyName = (propertyId: string) => {
-    return properties.find((p) => p.id === propertyId)?.name || "Unknown";
+    return (properties || []).find((p) => p.id === propertyId)?.name || "Unknown";
   };
 
-  const pendingCount = tasks.filter((t) => t.status === "pending").length;
-  const inProgressCount = tasks.filter((t) => t.status === "in-progress").length;
-  const completedCount = tasks.filter((t) => t.status === "completed").length;
-  const urgentCount = tasks.filter(
+  const pendingCount = (tasks || []).filter((t) => t.status === "pending").length;
+  const inProgressCount = (tasks || []).filter((t) => t.status === "in_progress").length;
+  const completedCount = (tasks || []).filter((t) => t.status === "completed").length;
+  const urgentCount = (tasks || []).filter(
     (t) => t.priority === "urgent" && t.status !== "completed"
   ).length;
 
-  if (!mounted) {
+  if (!mounted || tasksLoading) {
     return (
-      <div className="p-6 lg:p-8">
-        <div className="h-96 animate-pulse rounded-lg bg-muted" />
+      <div className="flex items-center justify-center p-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -230,16 +179,16 @@ export default function MaintenancePage() {
               <div className="space-y-2">
                 <Label>Property</Label>
                 <Select
-                  value={newTask.propertyId}
+                  value={newTask.property_id}
                   onValueChange={(value) =>
-                    setNewTask({ ...newTask, propertyId: value })
+                    setNewTask({ ...newTask, property_id: value })
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select property" />
                   </SelectTrigger>
                   <SelectContent>
-                    {properties.map((property) => (
+                    {(properties || []).map((property) => (
                       <SelectItem key={property.id} value={property.id}>
                         {property.name}
                       </SelectItem>
@@ -267,36 +216,24 @@ export default function MaintenancePage() {
                   }
                 />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Priority</Label>
-                  <Select
-                    value={newTask.priority}
-                    onValueChange={(value: MaintenanceTask["priority"]) =>
-                      setNewTask({ ...newTask, priority: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Assignee</Label>
-                  <Input
-                    placeholder="e.g., John Smith"
-                    value={newTask.assignee}
-                    onChange={(e) =>
-                      setNewTask({ ...newTask, assignee: e.target.value })
-                    }
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select
+                  value={newTask.priority}
+                  onValueChange={(value: MaintenanceTask["priority"]) =>
+                    setNewTask({ ...newTask, priority: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <DialogFooter>
@@ -305,7 +242,7 @@ export default function MaintenancePage() {
               </Button>
               <Button
                 onClick={handleAddTask}
-                disabled={!newTask.propertyId || !newTask.title}
+                disabled={!newTask.property_id || !newTask.title}
               >
                 Create Task
               </Button>
@@ -368,7 +305,7 @@ export default function MaintenancePage() {
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="in-progress">In Progress</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
@@ -378,7 +315,7 @@ export default function MaintenancePage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Properties</SelectItem>
-                  {properties.map((property) => (
+                  {(properties || []).map((property) => (
                     <SelectItem key={property.id} value={property.id}>
                       {property.name}
                     </SelectItem>
@@ -397,7 +334,7 @@ export default function MaintenancePage() {
               </div>
             ) : (
               filteredTasks.map((task) => {
-                const StatusIcon = statusIcons[task.status];
+                const StatusIcon = statusIcons[task.status] || Clock;
                 return (
                   <div
                     key={task.id}
@@ -411,7 +348,7 @@ export default function MaintenancePage() {
                         </Badge>
                         <Badge className={statusColors[task.status]}>
                           <StatusIcon className="mr-1 h-3 w-3" />
-                          {task.status}
+                          {task.status.replace("_", " ")}
                         </Badge>
                       </div>
                       <p className="mb-2 text-sm text-muted-foreground">
@@ -420,15 +357,11 @@ export default function MaintenancePage() {
                       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Building2 className="h-3 w-3" />
-                          {getPropertyName(task.propertyId)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <User className="h-3 w-3" />
-                          {task.assignee}
+                          {getPropertyName(task.property_id)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          Due: {format(task.dueDate, "MMM d, yyyy")}
+                          Due: {format(new Date(task.due_date), "MMM d, yyyy")}
                         </span>
                       </div>
                     </div>
@@ -438,7 +371,7 @@ export default function MaintenancePage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => updateTaskStatus(task.id, "in-progress")}
+                            onClick={() => updateTaskStatus(task.id, "in_progress")}
                           >
                             Start
                           </Button>
