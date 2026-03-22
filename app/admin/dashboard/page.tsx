@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import useSWR from "swr";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { OccupancyOverview } from "@/components/uis/occupancy-overview";
-import { properties, reservations } from "@/lib/mock-data";
 import { format } from "date-fns";
 import {
   Building2,
@@ -17,23 +17,30 @@ import {
   ArrowDownRight,
   MapPin,
   Bell,
+  Loader2,
 } from "lucide-react";
+import type { Property, Reservation } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [todayStr, setTodayStr] = useState("");
+
+  const { data: properties, isLoading: propertiesLoading } = useSWR<Property[]>("/api/properties", fetcher);
+  const { data: reservations, isLoading: reservationsLoading } = useSWR<Reservation[]>("/api/reservations", fetcher);
 
   useEffect(() => {
     setMounted(true);
     setTodayStr(format(new Date(), "MMM d, yyyy"));
   }, []);
 
-  const confirmedReservations = reservations.filter(
+  const confirmedReservations = (reservations || []).filter(
     (r) => r.status === "confirmed"
   );
-  const pendingReservations = reservations.filter((r) => r.status === "pending");
+  const pendingReservations = (reservations || []).filter((r) => r.status === "pending");
   const totalRevenue = confirmedReservations.reduce(
-    (sum, r) => sum + r.totalPrice,
+    (sum, r) => sum + Number(r.total_price),
     0
   );
 
@@ -68,10 +75,10 @@ export default function DashboardPage() {
     },
   ];
 
-  if (!mounted) {
+  if (!mounted || propertiesLoading || reservationsLoading) {
     return (
-      <div className="p-6 lg:p-8">
-        <div className="h-96 animate-pulse rounded-lg bg-muted" />
+      <div className="flex items-center justify-center p-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -98,7 +105,7 @@ export default function DashboardPage() {
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{properties.length}</div>
+            <div className="text-3xl font-bold">{properties?.length || 0}</div>
             <p className="text-xs text-muted-foreground">
               Active listings
             </p>
@@ -167,9 +174,9 @@ export default function DashboardPage() {
             <CardDescription>Quick overview of all your listings</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {properties.map((property) => {
-              const propertyReservations = reservations.filter(
-                (r) => r.propertyId === property.id && r.status === "confirmed"
+            {(properties || []).map((property) => {
+              const propertyReservations = (reservations || []).filter(
+                (r) => r.property_id === property.id && r.status === "confirmed"
               );
               return (
                 <div
@@ -190,7 +197,7 @@ export default function DashboardPage() {
                     <div className="mt-1 flex items-center gap-2">
                       <Badge variant="secondary">
                         <Users className="mr-1 h-3 w-3" />
-                        {property.maxGuests}
+                        {property.max_guests}
                       </Badge>
                       <Badge variant="outline">
                         {propertyReservations.length} bookings
@@ -199,7 +206,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-primary">
-                      ${property.pricePerNight}
+                      ${property.price_per_night}
                     </p>
                     <p className="text-xs text-muted-foreground">/night</p>
                   </div>
@@ -281,27 +288,27 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {confirmedReservations.slice(0, 4).map((reservation) => {
-                  const property = properties.find(
-                    (p) => p.id === reservation.propertyId
+                  const property = (properties || []).find(
+                    (p) => p.id === reservation.property_id
                   );
                   return (
                     <tr key={reservation.id} className="border-b">
                       <td className="py-3">
-                        <p className="font-medium">{reservation.guestName}</p>
+                        <p className="font-medium">{reservation.guest_name}</p>
                         <p className="text-sm text-muted-foreground">
-                          {reservation.guestEmail}
+                          {reservation.guest_email}
                         </p>
                       </td>
                       <td className="py-3">{property?.name || "Unknown"}</td>
                       <td className="py-3">
-                        {format(reservation.checkIn, "MMM d, yyyy")}
+                        {format(new Date(reservation.check_in), "MMM d, yyyy")}
                       </td>
                       <td className="py-3">
-                        {format(reservation.checkOut, "MMM d, yyyy")}
+                        {format(new Date(reservation.check_out), "MMM d, yyyy")}
                       </td>
                       <td className="py-3">{reservation.guests}</td>
                       <td className="py-3 text-right font-bold">
-                        ${reservation.totalPrice}
+                        ${reservation.total_price}
                       </td>
                     </tr>
                   );

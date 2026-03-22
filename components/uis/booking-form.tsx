@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +16,6 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { properties, type Property } from "@/lib/mock-data";
 import {
   Calendar,
   User,
@@ -27,7 +27,11 @@ import {
   Users,
   Bed,
   Bath,
+  Loader2,
 } from "lucide-react";
+import type { Property } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 interface BookingFormProps {
   preselectedProperty?: string;
@@ -36,12 +40,12 @@ interface BookingFormProps {
 }
 
 interface BookingData {
-  propertyId: string;
-  checkIn: string;
-  checkOut: string;
+  property_id: string;
+  check_in: string;
+  check_out: string;
   guests: number;
-  guestName: string;
-  guestEmail: string;
+  guest_name: string;
+  guest_email: string;
   guestPhone: string;
   specialRequests: string;
   agreeToTerms: boolean;
@@ -62,17 +66,20 @@ export function BookingForm({
   const [mounted, setMounted] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [confirmationNumber, setConfirmationNumber] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<BookingData>({
-    propertyId: preselectedProperty || "",
-    checkIn: preselectedDates?.start.toISOString().split("T")[0] || "",
-    checkOut: preselectedDates?.end.toISOString().split("T")[0] || "",
+    property_id: preselectedProperty || "",
+    check_in: preselectedDates?.start.toISOString().split("T")[0] || "",
+    check_out: preselectedDates?.end.toISOString().split("T")[0] || "",
     guests: 1,
-    guestName: "",
-    guestEmail: "",
+    guest_name: "",
+    guest_email: "",
     guestPhone: "",
     specialRequests: "",
     agreeToTerms: false,
   });
+
+  const { data: properties, isLoading } = useSWR<Property[]>("/api/properties", fetcher);
 
   useEffect(() => {
     setMounted(true);
@@ -86,28 +93,28 @@ export function BookingForm({
 
       setFormData((prev) => ({
         ...prev,
-        checkIn: nextWeek.toISOString().split("T")[0],
-        checkOut: weekAfter.toISOString().split("T")[0],
+        check_in: nextWeek.toISOString().split("T")[0],
+        check_out: weekAfter.toISOString().split("T")[0],
       }));
     }
   }, [preselectedDates]);
 
-  const selectedProperty = properties.find((p) => p.id === formData.propertyId);
+  const selectedProperty = (properties || []).find((p) => p.id === formData.property_id);
 
   const calculateTotalPrice = () => {
-    if (!selectedProperty || !formData.checkIn || !formData.checkOut) return 0;
-    const checkIn = new Date(formData.checkIn);
-    const checkOut = new Date(formData.checkOut);
+    if (!selectedProperty || !formData.check_in || !formData.check_out) return 0;
+    const checkIn = new Date(formData.check_in);
+    const checkOut = new Date(formData.check_out);
     const nights = Math.ceil(
       (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
     );
-    return nights * selectedProperty.pricePerNight;
+    return nights * selectedProperty.price_per_night;
   };
 
   const calculateNights = () => {
-    if (!formData.checkIn || !formData.checkOut) return 0;
-    const checkIn = new Date(formData.checkIn);
-    const checkOut = new Date(formData.checkOut);
+    if (!formData.check_in || !formData.check_out) return 0;
+    const checkIn = new Date(formData.check_in);
+    const checkOut = new Date(formData.check_out);
     return Math.ceil(
       (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
     );
@@ -120,9 +127,9 @@ export function BookingForm({
   const canProceed = () => {
     switch (currentStep) {
       case 1:
-        return formData.propertyId && formData.checkIn && formData.checkOut && formData.guests > 0;
+        return formData.property_id && formData.check_in && formData.check_out && formData.guests > 0;
       case 2:
-        return formData.guestName && formData.guestEmail && formData.guestPhone;
+        return formData.guest_name && formData.guest_email && formData.guestPhone;
       case 3:
         return formData.agreeToTerms;
       default:
@@ -130,13 +137,38 @@ export function BookingForm({
     }
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep < 4) {
-      setCurrentStep(currentStep + 1);
-    }
-    if (currentStep === 3) {
-      setConfirmationNumber(`SH-${Date.now().toString(36).toUpperCase()}`);
-      onComplete?.(formData);
+      if (currentStep === 3) {
+        setIsSubmitting(true);
+        try {
+          const response = await fetch("/api/reservations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              property_id: formData.property_id,
+              guest_name: formData.guest_name,
+              guest_email: formData.guest_email,
+              check_in: formData.check_in,
+              check_out: formData.check_out,
+              guests: formData.guests,
+              total_price: calculateTotalPrice(),
+              status: "confirmed",
+            }),
+          });
+          if (response.ok) {
+            setConfirmationNumber(`SH-${Date.now().toString(36).toUpperCase()}`);
+            onComplete?.(formData);
+            setCurrentStep(4);
+          }
+        } catch (error) {
+          console.error("Error creating reservation:", error);
+        } finally {
+          setIsSubmitting(false);
+        }
+      } else {
+        setCurrentStep(currentStep + 1);
+      }
     }
   };
 
@@ -146,14 +178,16 @@ export function BookingForm({
     }
   };
 
-  if (!mounted) {
+  if (!mounted || isLoading) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Loading Booking Form...</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-96 animate-pulse rounded-lg bg-muted" />
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
         </CardContent>
       </Card>
     );
@@ -220,16 +254,16 @@ export function BookingForm({
             <div className="space-y-2">
               <Label htmlFor="property">Select Property</Label>
               <Select
-                value={formData.propertyId}
-                onValueChange={(value) => updateFormData("propertyId", value)}
+                value={formData.property_id}
+                onValueChange={(value) => updateFormData("property_id", value)}
               >
                 <SelectTrigger id="property">
                   <SelectValue placeholder="Choose a property" />
                 </SelectTrigger>
                 <SelectContent>
-                  {properties.map((p) => (
+                  {(properties || []).map((p) => (
                     <SelectItem key={p.id} value={p.id}>
-                      {p.name} - ${p.pricePerNight}/night
+                      {p.name} - ${p.price_per_night}/night
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -253,7 +287,7 @@ export function BookingForm({
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Badge variant="secondary">
                         <Users className="mr-1 h-3 w-3" />
-                        {selectedProperty.maxGuests} guests
+                        {selectedProperty.max_guests} guests
                       </Badge>
                       <Badge variant="secondary">
                         <Bed className="mr-1 h-3 w-3" />
@@ -265,7 +299,7 @@ export function BookingForm({
                       </Badge>
                     </div>
                     <p className="mt-2 text-lg font-bold text-primary">
-                      ${selectedProperty.pricePerNight}
+                      ${selectedProperty.price_per_night}
                       <span className="text-sm font-normal text-muted-foreground">
                         /night
                       </span>
@@ -281,8 +315,8 @@ export function BookingForm({
                 <Input
                   id="checkIn"
                   type="date"
-                  value={formData.checkIn}
-                  onChange={(e) => updateFormData("checkIn", e.target.value)}
+                  value={formData.check_in}
+                  onChange={(e) => updateFormData("check_in", e.target.value)}
                 />
               </div>
               <div className="space-y-2">
@@ -290,8 +324,8 @@ export function BookingForm({
                 <Input
                   id="checkOut"
                   type="date"
-                  value={formData.checkOut}
-                  onChange={(e) => updateFormData("checkOut", e.target.value)}
+                  value={formData.check_out}
+                  onChange={(e) => updateFormData("check_out", e.target.value)}
                 />
               </div>
             </div>
@@ -307,7 +341,7 @@ export function BookingForm({
                 </SelectTrigger>
                 <SelectContent>
                   {Array.from(
-                    { length: selectedProperty?.maxGuests || 4 },
+                    { length: selectedProperty?.max_guests || 4 },
                     (_, i) => i + 1
                   ).map((num) => (
                     <SelectItem key={num} value={num.toString()}>
@@ -328,8 +362,8 @@ export function BookingForm({
               <Input
                 id="guestName"
                 placeholder="Enter your full name"
-                value={formData.guestName}
-                onChange={(e) => updateFormData("guestName", e.target.value)}
+                value={formData.guest_name}
+                onChange={(e) => updateFormData("guest_name", e.target.value)}
               />
             </div>
 
@@ -339,8 +373,8 @@ export function BookingForm({
                 id="guestEmail"
                 type="email"
                 placeholder="your@email.com"
-                value={formData.guestEmail}
-                onChange={(e) => updateFormData("guestEmail", e.target.value)}
+                value={formData.guest_email}
+                onChange={(e) => updateFormData("guest_email", e.target.value)}
               />
             </div>
 
@@ -385,11 +419,11 @@ export function BookingForm({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Check-in</span>
-                  <span>{new Date(formData.checkIn).toLocaleDateString()}</span>
+                  <span>{new Date(formData.check_in).toLocaleDateString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Check-out</span>
-                  <span>{new Date(formData.checkOut).toLocaleDateString()}</span>
+                  <span>{new Date(formData.check_out).toLocaleDateString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Guests</span>
@@ -402,7 +436,7 @@ export function BookingForm({
                 <div className="border-t pt-3">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">
-                      ${selectedProperty.pricePerNight} x {calculateNights()} nights
+                      ${selectedProperty.price_per_night} x {calculateNights()} nights
                     </span>
                     <span>${calculateTotalPrice()}</span>
                   </div>
@@ -416,8 +450,8 @@ export function BookingForm({
 
             <div className="rounded-lg border p-4">
               <h4 className="mb-2 font-semibold">Guest Information</h4>
-              <p>{formData.guestName}</p>
-              <p className="text-muted-foreground">{formData.guestEmail}</p>
+              <p>{formData.guest_name}</p>
+              <p className="text-muted-foreground">{formData.guest_email}</p>
               <p className="text-muted-foreground">{formData.guestPhone}</p>
               {formData.specialRequests && (
                 <div className="mt-2 border-t pt-2">
@@ -455,7 +489,7 @@ export function BookingForm({
             <h3 className="mb-2 text-2xl font-bold">Booking Confirmed!</h3>
             <p className="mb-6 max-w-md text-muted-foreground">
               Your reservation has been successfully submitted. A confirmation email
-              has been sent to {formData.guestEmail}.
+              has been sent to {formData.guest_email}.
             </p>
             <div className="rounded-lg bg-muted/50 p-4">
               <p className="text-sm text-muted-foreground">Confirmation Number</p>
@@ -476,7 +510,8 @@ export function BookingForm({
         )}
         {currentStep === 1 && <div />}
         {currentStep < 4 && (
-          <Button onClick={handleNext} disabled={!canProceed()} className="ml-auto">
+          <Button onClick={handleNext} disabled={!canProceed() || isSubmitting} className="ml-auto">
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {currentStep === 3 ? "Confirm Booking" : "Continue"}
             <ChevronRight className="ml-2 h-4 w-4" />
           </Button>

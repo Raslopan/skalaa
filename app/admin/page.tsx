@@ -1,4 +1,6 @@
-import { modules } from "@/lib/mock-data";
+"use client";
+
+import useSWR from "swr";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
@@ -10,7 +12,11 @@ import {
   Wrench,
   ArrowRight,
   Building2,
+  Loader2,
 } from "lucide-react";
+import type { Module, Property, Reservation } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const iconMap: Record<string, React.ElementType> = {
   Calendar,
@@ -22,6 +28,21 @@ const iconMap: Record<string, React.ElementType> = {
 };
 
 export default function AdminHomePage() {
+  const { data: modules, isLoading: modulesLoading } = useSWR<Module[]>("/api/modules", fetcher);
+  const { data: properties } = useSWR<Property[]>("/api/properties", fetcher);
+  const { data: reservations } = useSWR<Reservation[]>("/api/reservations", fetcher);
+
+  const confirmedReservations = (reservations || []).filter(r => r.status === "confirmed");
+  const totalRevenue = confirmedReservations.reduce((sum, r) => sum + Number(r.total_price), 0);
+
+  if (modulesLoading) {
+    return (
+      <div className="flex items-center justify-center p-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 lg:p-8">
       <div className="mb-8">
@@ -38,19 +59,19 @@ export default function AdminHomePage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Properties</CardDescription>
-            <CardTitle className="text-3xl">4</CardTitle>
+            <CardTitle className="text-3xl">{properties?.length || 0}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Active Reservations</CardDescription>
-            <CardTitle className="text-3xl">5</CardTitle>
+            <CardTitle className="text-3xl">{confirmedReservations.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>This Month Revenue</CardDescription>
-            <CardTitle className="text-3xl">$9,790</CardTitle>
+            <CardTitle className="text-3xl">${totalRevenue.toLocaleString()}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -70,7 +91,7 @@ export default function AdminHomePage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {modules.map((module) => {
+        {(modules || []).map((module) => {
           const Icon = iconMap[module.icon] || Calendar;
           const isEnabled = module.enabled;
 

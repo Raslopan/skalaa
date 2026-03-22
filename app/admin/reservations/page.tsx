@@ -1,25 +1,31 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import useSWR from "swr";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AvailabilityCalendar } from "@/components/uis/availability-calendar";
 import { BookingForm } from "@/components/uis/booking-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { reservations, properties } from "@/lib/mock-data";
 import { format } from "date-fns";
-import { Calendar, Plus, List } from "lucide-react";
+import { Calendar, Plus, List, Loader2 } from "lucide-react";
+import type { Property, Reservation } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function ReservationsPage() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState("calendar");
+
+  const { data: reservations, isLoading: reservationsLoading } = useSWR<Reservation[]>("/api/reservations", fetcher);
+  const { data: properties } = useSWR<Property[]>("/api/properties", fetcher);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   const getPropertyName = (propertyId: string) => {
-    return properties.find((p) => p.id === propertyId)?.name || "Unknown";
+    return (properties || []).find((p) => p.id === propertyId)?.name || "Unknown";
   };
 
   const getStatusColor = (status: string) => {
@@ -35,10 +41,10 @@ export default function ReservationsPage() {
     }
   };
 
-  if (!mounted) {
+  if (!mounted || reservationsLoading) {
     return (
-      <div className="p-6 lg:p-8">
-        <div className="h-96 animate-pulse rounded-lg bg-muted" />
+      <div className="flex items-center justify-center p-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -88,29 +94,29 @@ export default function ReservationsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {reservations.map((reservation) => (
+                {(reservations || []).map((reservation) => (
                   <div
                     key={reservation.id}
                     className="flex flex-col gap-4 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold">{reservation.guestName}</p>
+                        <p className="font-semibold">{reservation.guest_name}</p>
                         <Badge className={getStatusColor(reservation.status)}>
                           {reservation.status}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {getPropertyName(reservation.propertyId)}
+                        {getPropertyName(reservation.property_id)}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {format(reservation.checkIn, "MMM d, yyyy")} -{" "}
-                        {format(reservation.checkOut, "MMM d, yyyy")}
+                        {format(new Date(reservation.check_in), "MMM d, yyyy")} -{" "}
+                        {format(new Date(reservation.check_out), "MMM d, yyyy")}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-primary">
-                        ${reservation.totalPrice}
+                        ${reservation.total_price}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {reservation.guests} guests

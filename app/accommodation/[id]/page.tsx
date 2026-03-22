@@ -3,9 +3,11 @@
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Star,
   Heart,
@@ -21,104 +23,24 @@ import {
   Bed,
 } from "lucide-react";
 
-const accommodations = [
-  {
-    id: 1,
-    title: "Oceanfront Paradise Villa",
-    location: "Maldives",
-    image: "https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=800&h=600&fit=crop",
-    price: 450,
-    rating: 4.9,
-    reviews: 234,
-    type: "Villa",
-    featured: true,
-    description: "Experience the ultimate luxury escape in our stunning oceanfront villa. Wake up to breathtaking views of crystal-clear turquoise waters and pristine white sand beaches. This exclusive retreat offers unparalleled privacy and world-class amenities.",
-    bedrooms: 3,
-    bathrooms: 2,
-    guests: 6,
-    amenities: ["wifi", "parking", "restaurant", "ac", "tv", "pool"],
-  },
-  {
-    id: 2,
-    title: "Alpine Mountain Chalet",
-    location: "Swiss Alps",
-    image: "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800&h=600&fit=crop",
-    price: 320,
-    rating: 4.8,
-    reviews: 189,
-    type: "Chalet",
-    featured: false,
-    description: "Nestled in the heart of the Swiss Alps, this charming chalet offers a perfect blend of rustic charm and modern comfort. Enjoy panoramic mountain views, cozy fireplaces, and easy access to world-class ski slopes.",
-    bedrooms: 4,
-    bathrooms: 3,
-    guests: 8,
-    amenities: ["wifi", "parking", "ac", "tv"],
-  },
-  {
-    id: 3,
-    title: "Historic City Center Apartment",
-    location: "Paris, France",
-    image: "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800&h=600&fit=crop",
-    price: 180,
-    rating: 4.7,
-    reviews: 412,
-    type: "Apartment",
-    featured: false,
-    description: "Stay in the heart of Paris in this beautifully renovated historic apartment. Just steps from iconic landmarks, charming cafes, and world-renowned museums. Experience authentic Parisian living with modern conveniences.",
-    bedrooms: 2,
-    bathrooms: 1,
-    guests: 4,
-    amenities: ["wifi", "ac", "tv"],
-  },
-  {
-    id: 4,
-    title: "Luxury Beach Resort Suite",
-    location: "Bali, Indonesia",
-    image: "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800&h=600&fit=crop",
-    price: 280,
-    rating: 4.9,
-    reviews: 567,
-    type: "Resort",
-    featured: true,
-    description: "Indulge in tropical luxury at our exclusive Bali resort suite. Surrounded by lush gardens and overlooking pristine beaches, this suite offers the perfect sanctuary for relaxation and rejuvenation.",
-    bedrooms: 2,
-    bathrooms: 2,
-    guests: 4,
-    amenities: ["wifi", "parking", "restaurant", "ac", "tv", "pool"],
-  },
-  {
-    id: 5,
-    title: "Modern Downtown Loft",
-    location: "New York City",
-    image: "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop",
-    price: 220,
-    rating: 4.6,
-    reviews: 298,
-    type: "Loft",
-    featured: false,
-    description: "Experience the energy of NYC in this stylish downtown loft. Featuring industrial-chic design, floor-to-ceiling windows, and a prime location near trendy restaurants, galleries, and entertainment.",
-    bedrooms: 1,
-    bathrooms: 1,
-    guests: 2,
-    amenities: ["wifi", "ac", "tv"],
-  },
-  {
-    id: 6,
-    title: "Serene Lake House Retreat",
-    location: "Lake Como, Italy",
-    image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&h=600&fit=crop",
-    price: 390,
-    rating: 4.8,
-    reviews: 156,
-    type: "House",
-    featured: true,
-    description: "Escape to this stunning lakehouse on the shores of Lake Como. Enjoy breathtaking water views, private dock access, and the charm of one of Italy's most beautiful destinations.",
-    bedrooms: 4,
-    bathrooms: 3,
-    guests: 8,
-    amenities: ["wifi", "parking", "ac", "tv"],
-  },
-];
+interface Property {
+  id: string;
+  title: string;
+  location: string;
+  image: string;
+  price: number;
+  rating: number;
+  reviews: number;
+  type: string;
+  featured: boolean;
+  description: string;
+  bedrooms: number;
+  bathrooms: number;
+  guests: number;
+  amenities: string[];
+}
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 const amenityIcons: Record<string, React.ReactNode> = {
   wifi: <Wifi className="h-5 w-5" />,
@@ -138,12 +60,47 @@ const amenityLabels: Record<string, string> = {
   pool: "Swimming Pool",
 };
 
+function LoadingSkeleton() {
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-10 w-10 rounded-md" />
+        </div>
+      </header>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <Skeleton className="mb-8 aspect-[21/9] w-full rounded-xl" />
+        <div className="grid gap-8 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-4">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-10 w-3/4" />
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-24 w-full" />
+          </div>
+          <div className="lg:col-span-1">
+            <Skeleton className="h-96 w-full rounded-lg" />
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
 export default function AccommodationDetailPage() {
   const params = useParams();
-  const id = Number(params.id);
-  const accommodation = accommodations.find((a) => a.id === id);
+  const id = params.id as string;
+  
+  const { data: accommodation, error, isLoading } = useSWR<Property>(
+    `/api/properties/${id}`,
+    fetcher
+  );
 
-  if (!accommodation) {
+  if (isLoading) {
+    return <LoadingSkeleton />;
+  }
+
+  if (error || !accommodation) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background">
         <h1 className="text-2xl font-bold">Accommodation not found</h1>
@@ -243,9 +200,9 @@ export default function AccommodationDetailPage() {
                     className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3 transition-colors hover:bg-muted/50"
                   >
                     <span className="text-primary">
-                      {amenityIcons[amenity]}
+                      {amenityIcons[amenity] || <Wifi className="h-5 w-5" />}
                     </span>
-                    <span className="text-sm font-medium">{amenityLabels[amenity]}</span>
+                    <span className="text-sm font-medium">{amenityLabels[amenity] || amenity}</span>
                   </div>
                 ))}
               </div>

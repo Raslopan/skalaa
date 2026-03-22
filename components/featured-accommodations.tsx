@@ -2,15 +2,32 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import useSWR from "swr";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Star, Heart, MapPin, Users, Bed } from "lucide-react";
+import { Heart, MapPin, Users, Bed, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { properties } from "@/lib/mock-data";
+import type { Property } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export function FeaturedAccommodations() {
-  // Zobrazíme první 3 nemovitosti z mock-data jako "Featured"
-  const featuredList = properties.slice(0, 3);
+  const { data: properties, isLoading } = useSWR<Property[]>("/api/properties", fetcher);
+
+  // Show first 3 properties as "Featured"
+  const featuredList = (properties || []).slice(0, 3);
+
+  if (isLoading) {
+    return (
+      <section className="bg-background py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="bg-background py-20">
@@ -18,15 +35,15 @@ export function FeaturedAccommodations() {
         <div className="mb-12 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-3xl font-bold tracking-tight text-foreground">
-              Doporučené ubytování
+              Featured Accommodations
             </h2>
             <p className="mt-2 text-muted-foreground">
-              Ručně vybraná místa z našeho nového systému
+              Hand-picked places from our system
             </p>
           </div>
           <Link href="/explore">
             <Button variant="outline" className="shrink-0">
-              Zobrazit vše
+              View All
             </Button>
           </Link>
         </div>
@@ -69,19 +86,19 @@ export function FeaturedAccommodations() {
                   <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
                     <div className="flex items-center gap-1">
                       <Users className="h-3.5 w-3.5" />
-                      <span>{property.maxGuests} hosté</span>
+                      <span>{property.max_guests} guests</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Bed className="h-3.5 w-3.5" />
-                      <span>{property.bedrooms} ložnice</span>
+                      <span>{property.bedrooms} bedrooms</span>
                     </div>
                   </div>
                   <div className="flex items-baseline justify-between">
                     <div>
                       <span className="text-2xl font-bold text-foreground">
-                        ${property.pricePerNight}
+                        ${property.price_per_night}
                       </span>
-                      <span className="text-sm text-muted-foreground"> / noc</span>
+                      <span className="text-sm text-muted-foreground"> / night</span>
                     </div>
                     <Button size="sm">Detail</Button>
                   </div>

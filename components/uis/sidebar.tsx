@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import useSWR from "swr";
 import { cn } from "@/lib/utils";
-import { modules } from "@/lib/mock-data";
 import {
   Calendar,
   LayoutDashboard,
@@ -14,9 +14,13 @@ import {
   Settings,
   ChevronLeft,
   Building2,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import type { Module } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const iconMap: Record<string, React.ElementType> = {
   Calendar,
@@ -34,6 +38,7 @@ interface SidebarProps {
 
 export function UisSidebar({ collapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const { data: modules, isLoading } = useSWR<Module[]>("/api/modules", fetcher);
 
   return (
     <aside
@@ -94,50 +99,56 @@ export function UisSidebar({ collapsed = false, onToggle }: SidebarProps) {
           </p>
         )}
 
-        {modules.map((module) => {
-          const Icon = iconMap[module.icon] || Calendar;
-          const isActive = pathname === module.route;
-          const isDisabled = !module.enabled;
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-sidebar-foreground/60" />
+          </div>
+        ) : (
+          (modules || []).map((module) => {
+            const Icon = iconMap[module.icon] || Calendar;
+            const isActive = pathname === module.route;
+            const isDisabled = !module.enabled;
 
-          const content = (
-            <>
-              <Icon className="h-5 w-5 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1">{module.name}</span>
-                  {isDisabled && (
-                    <Badge variant="secondary" className="text-xs">
-                      Soon
-                    </Badge>
-                  )}
-                </>
-              )}
-            </>
-          );
-
-          const baseClassName = cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-            isActive
-              ? "bg-sidebar-primary text-sidebar-primary-foreground"
-              : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-            isDisabled && "cursor-not-allowed opacity-50",
-            collapsed && "justify-center px-2"
-          );
-
-          if (isDisabled) {
-            return (
-              <span key={module.id} className={baseClassName}>
-                {content}
-              </span>
+            const content = (
+              <>
+                <Icon className="h-5 w-5 shrink-0" />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1">{module.name}</span>
+                    {isDisabled && (
+                      <Badge variant="secondary" className="text-xs">
+                        Soon
+                      </Badge>
+                    )}
+                  </>
+                )}
+              </>
             );
-          }
 
-          return (
-            <Link key={module.id} href={module.route} className={baseClassName}>
-              {content}
-            </Link>
-          );
-        })}
+            const baseClassName = cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+              isActive
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              isDisabled && "cursor-not-allowed opacity-50",
+              collapsed && "justify-center px-2"
+            );
+
+            if (isDisabled) {
+              return (
+                <span key={module.id} className={baseClassName}>
+                  {content}
+                </span>
+              );
+            }
+
+            return (
+              <Link key={module.id} href={module.route} className={baseClassName}>
+                {content}
+              </Link>
+            );
+          })
+        )}
       </nav>
 
       {/* Footer */}

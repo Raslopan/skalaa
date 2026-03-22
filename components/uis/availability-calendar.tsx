@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import useSWR from "swr";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -12,12 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import {
-  properties,
-  generateCalendarData,
-  type CalendarDay,
-  type Property,
-} from "@/lib/mock-data";
+import type { Property, CalendarDay } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
@@ -38,29 +36,36 @@ export function AvailabilityCalendar({
 }: AvailabilityCalendarProps) {
   const [mounted, setMounted] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
-  const [selectedProperty, setSelectedProperty] = useState<string>(
-    propertyId || properties[0].id
-  );
+  const [selectedProperty, setSelectedProperty] = useState<string>(propertyId || "");
   const [selectedRange, setSelectedRange] = useState<{
     start: Date | null;
     end: Date | null;
   }>({ start: null, end: null });
+
+  const { data: properties, isLoading: propertiesLoading } = useSWR<Property[]>("/api/properties", fetcher);
 
   useEffect(() => {
     setMounted(true);
     setCurrentDate(new Date());
   }, []);
 
-  const calendarData = useMemo(() => {
-    if (!currentDate) return [];
-    return generateCalendarData(
-      selectedProperty,
-      currentDate.getFullYear(),
-      currentDate.getMonth()
-    );
+  useEffect(() => {
+    if (properties?.length && !selectedProperty && !propertyId) {
+      setSelectedProperty(properties[0].id);
+    }
+  }, [properties, selectedProperty, propertyId]);
+
+  const calendarUrl = useMemo(() => {
+    if (!currentDate || !selectedProperty) return null;
+    return `/api/calendar?propertyId=${selectedProperty}&year=${currentDate.getFullYear()}&month=${currentDate.getMonth()}`;
   }, [selectedProperty, currentDate]);
 
-  const property = properties.find((p) => p.id === selectedProperty);
+  const { data: calendarData, isLoading: calendarLoading } = useSWR<CalendarDay[]>(
+    calendarUrl,
+    fetcher
+  );
+
+  const property = (properties || []).find((p) => p.id === selectedProperty);
 
   const goToPreviousMonth = () => {
     if (!currentDate) return;
@@ -79,25 +84,28 @@ export function AvailabilityCalendar({
   const handleDateClick = (day: CalendarDay) => {
     if (day.status !== "available") return;
 
+    const date = new Date(day.date);
+
     if (selectionMode === "range") {
       if (!selectedRange.start || selectedRange.end) {
-        setSelectedRange({ start: day.date, end: null });
+        setSelectedRange({ start: date, end: null });
       } else {
-        if (day.date > selectedRange.start) {
-          setSelectedRange({ ...selectedRange, end: day.date });
+        if (date > selectedRange.start) {
+          setSelectedRange({ ...selectedRange, end: date });
         } else {
-          setSelectedRange({ start: day.date, end: null });
+          setSelectedRange({ start: date, end: null });
         }
       }
     }
 
-    onDateSelect?.(day.date, day.status);
+    onDateSelect?.(date, day.status);
   };
 
   const isInSelectedRange = (date: Date) => {
+    const d = new Date(date);
     if (!selectedRange.start) return false;
-    if (!selectedRange.end) return date.getTime() === selectedRange.start.getTime();
-    return date >= selectedRange.start && date <= selectedRange.end;
+    if (!selectedRange.end) return d.getTime() === selectedRange.start.getTime();
+    return d >= selectedRange.start && d <= selectedRange.end;
   };
 
   const getStatusColor = (status: CalendarDay["status"], isSelected: boolean) => {
@@ -122,18 +130,22 @@ export function AvailabilityCalendar({
     : 0;
   const paddingDays = Array(firstDayOfMonth).fill(null);
 
-  if (!mounted || !currentDate) {
+  if (!mounted || propertiesLoading) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Loading Calendar...</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-96 animate-pulse rounded-lg bg-muted" />
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
         </CardContent>
       </Card>
     );
   }
+
+  if (!currentDate) return null;
 
   return (
     <Card>
@@ -149,7 +161,7 @@ export function AvailabilityCalendar({
                 <SelectValue placeholder="Select property" />
               </SelectTrigger>
               <SelectContent>
-                {properties.map((p) => (
+                {(properties || []).map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name}
                   </SelectItem>
@@ -180,8 +192,8 @@ export function AvailabilityCalendar({
           <div className="mb-4 rounded-lg bg-muted/50 p-3">
             <p className="font-medium">{property.name}</p>
             <p className="text-sm text-muted-foreground">
-              {property.location} | ${property.pricePerNight}/night | Up to{" "}
-              {property.maxGuests} guests
+              {property.location} | ${property.price_per_night}/night | Up to{" "}
+              {property.max_guests} guests
             </p>
           </div>
         )}
@@ -199,37 +211,42 @@ export function AvailabilityCalendar({
         </div>
 
         {/* Calendar Grid */}
-        <div className="grid grid-cols-7 gap-1">
-          {/* Padding for first week */}
-          {paddingDays.map((_, index) => (
-            <div key={`pad-${index}`} className="aspect-square p-1" />
-          ))}
+        {calendarLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-7 gap-1">
+            {/* Padding for first week */}
+            {paddingDays.map((_, index) => (
+              <div key={`pad-${index}`} className="aspect-square p-1" />
+            ))}
 
-          {/* Calendar Days */}
-          {calendarData.map((day, index) => {
-            const isSelected = isInSelectedRange(day.date);
-            const isToday = currentDate
-              ? day.date.toDateString() === currentDate.toDateString()
-              : false;
+            {/* Calendar Days */}
+            {(calendarData || []).map((day, index) => {
+              const date = new Date(day.date);
+              const isSelected = isInSelectedRange(date);
+              const isToday = date.toDateString() === new Date().toDateString();
 
-            return (
-              <div
-                key={index}
-                onClick={() => handleDateClick(day)}
-                className={cn(
-                  "relative flex aspect-square flex-col items-center justify-center rounded-lg p-1 text-sm transition-colors",
-                  getStatusColor(day.status, isSelected),
-                  isToday && "ring-2 ring-primary ring-offset-1"
-                )}
-              >
-                <span className="font-medium">{day.date.getDate()}</span>
-                {day.price && (
-                  <span className="text-[10px] opacity-75">${day.price}</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              return (
+                <div
+                  key={index}
+                  onClick={() => handleDateClick(day)}
+                  className={cn(
+                    "relative flex aspect-square flex-col items-center justify-center rounded-lg p-1 text-sm transition-colors",
+                    getStatusColor(day.status, isSelected),
+                    isToday && "ring-2 ring-primary ring-offset-1"
+                  )}
+                >
+                  <span className="font-medium">{date.getDate()}</span>
+                  {day.price && (
+                    <span className="text-[10px] opacity-75">${day.price}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Legend */}
         <div className="mt-6 flex flex-wrap items-center gap-4">

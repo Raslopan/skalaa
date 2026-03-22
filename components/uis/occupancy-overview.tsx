@@ -1,18 +1,21 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import useSWR from "swr";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { properties, generateCalendarData, reservations } from "@/lib/mock-data";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { Property, Reservation, CalendarDay } from "@/lib/queries";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -23,23 +26,36 @@ export function OccupancyOverview() {
   const [mounted, setMounted] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
 
+  const { data: properties, isLoading: propertiesLoading } = useSWR<Property[]>("/api/properties", fetcher);
+  const { data: reservations } = useSWR<Reservation[]>("/api/reservations", fetcher);
+
   useEffect(() => {
     setMounted(true);
     setCurrentDate(new Date());
   }, []);
 
-  const calendarDataByProperty = useMemo(() => {
-    if (!currentDate) return {};
-    const data: Record<string, ReturnType<typeof generateCalendarData>> = {};
-    properties.forEach((property) => {
-      data[property.id] = generateCalendarData(
-        property.id,
-        currentDate.getFullYear(),
-        currentDate.getMonth()
+  // Fetch calendar data for all properties
+  const calendarUrls = useMemo(() => {
+    if (!currentDate || !properties) return [];
+    return properties.map(p => ({
+      propertyId: p.id,
+      url: `/api/calendar?propertyId=${p.id}&year=${currentDate.getFullYear()}&month=${currentDate.getMonth()}`
+    }));
+  }, [currentDate, properties]);
+
+  const { data: calendarDataByProperty, isLoading: calendarLoading } = useSWR<Record<string, CalendarDay[]>>(
+    calendarUrls.length > 0 ? `calendar-overview-${currentDate?.getMonth()}-${currentDate?.getFullYear()}` : null,
+    async () => {
+      const results: Record<string, CalendarDay[]> = {};
+      await Promise.all(
+        calendarUrls.map(async ({ propertyId, url }) => {
+          const data = await fetcher(url);
+          results[propertyId] = data;
+        })
       );
-    });
-    return data;
-  }, [currentDate]);
+      return results;
+    }
+  );
 
   const goToPreviousMonth = () => {
     if (!currentDate) return;
@@ -72,11 +88,11 @@ export function OccupancyOverview() {
 
   const getReservationInfo = (reservationId?: string) => {
     if (!reservationId) return null;
-    return reservations.find((r) => r.id === reservationId);
+    return (reservations || []).find((r) => r.id === reservationId);
   };
 
   const calculateOccupancyRate = (propertyId: string) => {
-    const data = calendarDataByProperty[propertyId];
+    const data = calendarDataByProperty?.[propertyId];
     if (!data) return 0;
     const occupiedDays = data.filter((d) => d.status === "occupied").length;
     return Math.round((occupiedDays / data.length) * 100);
@@ -87,18 +103,22 @@ export function OccupancyOverview() {
     ? new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate()
     : 31;
 
-  if (!mounted || !currentDate) {
+  if (!mounted || propertiesLoading) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Loading Overview...</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-64 animate-pulse rounded-lg bg-muted" />
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
         </CardContent>
       </Card>
     );
   }
+
+  if (!currentDate) return null;
 
   return (
     <Card>
@@ -143,106 +163,112 @@ export function OccupancyOverview() {
         </div>
 
         {/* Grid */}
-        <div className="overflow-x-auto">
-          <div className="min-w-[800px]">
-            {/* Day headers */}
-            <div className="mb-2 flex">
-              <div className="w-48 shrink-0 pr-4 text-sm font-medium">
-                Property
-              </div>
-              <div className="flex flex-1 gap-0.5">
-                {Array.from({ length: daysInMonth }, (_, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 text-center text-xs text-muted-foreground"
-                  >
-                    {i + 1}
-                  </div>
-                ))}
-              </div>
-              <div className="w-16 shrink-0 pl-2 text-center text-xs font-medium">
-                Rate
-              </div>
-            </div>
-
-            {/* Property rows */}
-            <TooltipProvider>
-              {properties.map((property) => {
-                const data = calendarDataByProperty[property.id] || [];
-                const occupancyRate = calculateOccupancyRate(property.id);
-
-                return (
-                  <div
-                    key={property.id}
-                    className="mb-2 flex items-center rounded-lg bg-muted/30 p-2"
-                  >
-                    <div className="w-48 shrink-0 pr-4">
-                      <p className="truncate text-sm font-medium">
-                        {property.name}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {property.location}
-                      </p>
-                    </div>
-                    <div className="flex flex-1 gap-0.5">
-                      {data.map((day, index) => {
-                        const reservation = getReservationInfo(day.reservationId);
-                        return (
-                          <Tooltip key={index}>
-                            <TooltipTrigger asChild>
-                              <div
-                                className={cn(
-                                  "h-8 flex-1 cursor-pointer rounded-sm transition-opacity hover:opacity-80",
-                                  getStatusColor(day.status)
-                                )}
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <div className="text-sm">
-                                <p className="font-medium">
-                                  {day.date.toLocaleDateString()}
-                                </p>
-                                <p className="capitalize">{day.status}</p>
-                                {reservation && (
-                                  <p className="text-muted-foreground">
-                                    Guest: {reservation.guestName}
-                                  </p>
-                                )}
-                                {day.price && (
-                                  <p className="text-muted-foreground">
-                                    ${day.price}/night
-                                  </p>
-                                )}
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-                    <div className="w-16 shrink-0 pl-2 text-center">
-                      <Badge
-                        variant={occupancyRate > 50 ? "default" : "secondary"}
-                        className={cn(
-                          occupancyRate > 70 && "bg-emerald-500 hover:bg-emerald-600",
-                          occupancyRate < 30 && "bg-rose-500 hover:bg-rose-600 text-white"
-                        )}
-                      >
-                        {occupancyRate}%
-                      </Badge>
-                    </div>
-                  </div>
-                );
-              })}
-            </TooltipProvider>
+        {calendarLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="min-w-[800px]">
+              {/* Day headers */}
+              <div className="mb-2 flex">
+                <div className="w-48 shrink-0 pr-4 text-sm font-medium">
+                  Property
+                </div>
+                <div className="flex flex-1 gap-0.5">
+                  {Array.from({ length: daysInMonth }, (_, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 text-center text-xs text-muted-foreground"
+                    >
+                      {i + 1}
+                    </div>
+                  ))}
+                </div>
+                <div className="w-16 shrink-0 pl-2 text-center text-xs font-medium">
+                  Rate
+                </div>
+              </div>
+
+              {/* Property rows */}
+              <TooltipProvider>
+                {(properties || []).map((property) => {
+                  const data = calendarDataByProperty?.[property.id] || [];
+                  const occupancyRate = calculateOccupancyRate(property.id);
+
+                  return (
+                    <div
+                      key={property.id}
+                      className="mb-2 flex items-center rounded-lg bg-muted/30 p-2"
+                    >
+                      <div className="w-48 shrink-0 pr-4">
+                        <p className="truncate text-sm font-medium">
+                          {property.name}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {property.location}
+                        </p>
+                      </div>
+                      <div className="flex flex-1 gap-0.5">
+                        {data.map((day, index) => {
+                          const reservation = getReservationInfo(day.reservationId);
+                          return (
+                            <Tooltip key={index}>
+                              <TooltipTrigger asChild>
+                                <div
+                                  className={cn(
+                                    "h-8 flex-1 cursor-pointer rounded-sm transition-opacity hover:opacity-80",
+                                    getStatusColor(day.status)
+                                  )}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <div className="text-sm">
+                                  <p className="font-medium">
+                                    {new Date(day.date).toLocaleDateString()}
+                                  </p>
+                                  <p className="capitalize">{day.status}</p>
+                                  {reservation && (
+                                    <p className="text-muted-foreground">
+                                      Guest: {reservation.guest_name}
+                                    </p>
+                                  )}
+                                  {day.price && (
+                                    <p className="text-muted-foreground">
+                                      ${day.price}/night
+                                    </p>
+                                  )}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                      <div className="w-16 shrink-0 pl-2 text-center">
+                        <Badge
+                          variant={occupancyRate > 50 ? "default" : "secondary"}
+                          className={cn(
+                            occupancyRate > 70 && "bg-emerald-500 hover:bg-emerald-600",
+                            occupancyRate < 30 && "bg-rose-500 hover:bg-rose-600 text-white"
+                          )}
+                        >
+                          {occupancyRate}%
+                        </Badge>
+                      </div>
+                    </div>
+                  );
+                })}
+              </TooltipProvider>
+            </div>
+          </div>
+        )}
 
         {/* Summary Stats */}
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           <div className="rounded-lg bg-emerald-50 p-4">
             <p className="text-sm text-emerald-600">Total Available Days</p>
             <p className="text-2xl font-bold text-emerald-700">
-              {Object.values(calendarDataByProperty)
+              {Object.values(calendarDataByProperty || {})
                 .flat()
                 .filter((d) => d.status === "available").length}
             </p>
@@ -250,7 +276,7 @@ export function OccupancyOverview() {
           <div className="rounded-lg bg-rose-50 p-4">
             <p className="text-sm text-rose-600">Total Booked Days</p>
             <p className="text-2xl font-bold text-rose-700">
-              {Object.values(calendarDataByProperty)
+              {Object.values(calendarDataByProperty || {})
                 .flat()
                 .filter((d) => d.status === "occupied").length}
             </p>
@@ -258,7 +284,7 @@ export function OccupancyOverview() {
           <div className="rounded-lg bg-amber-50 p-4">
             <p className="text-sm text-amber-600">Maintenance Days</p>
             <p className="text-2xl font-bold text-amber-700">
-              {Object.values(calendarDataByProperty)
+              {Object.values(calendarDataByProperty || {})
                 .flat()
                 .filter((d) => d.status === "maintenance").length}
             </p>
