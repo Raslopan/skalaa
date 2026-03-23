@@ -1,26 +1,70 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { properties } from "@/lib/mock-data";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Users, Bed, Bath, Search } from "lucide-react"; // Tady byl chybějící Search
+import { MapPin, Users, Bed, Bath, Search, Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { Property } from "@/lib/types";
+import useSWR from "swr";
+
+async function fetchProperties(): Promise<Property[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("properties")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching properties:", error);
+    return [];
+  }
+
+  return data || [];
+}
 
 function ExploreContent() {
   const searchParams = useSearchParams();
   
+  const { data: properties, error, isLoading } = useSWR<Property[]>(
+    "all-properties",
+    fetchProperties
+  );
+
   const locationQuery = searchParams.get("location")?.toLowerCase() || "";
   const guestsQuery = parseInt(searchParams.get("guests") || "0");
 
-  const filteredProperties = properties.filter((item) => {
+  const filteredProperties = (properties || []).filter((item) => {
     const matchLocation = item.location.toLowerCase().includes(locationQuery) || 
                          item.name.toLowerCase().includes(locationQuery);
-    const matchGuests = guestsQuery > 0 ? item.maxGuests >= guestsQuery : true;
+    const matchGuests = guestsQuery > 0 ? item.max_guests >= guestsQuery : true;
     return matchLocation && matchGuests;
   });
+
+  if (isLoading) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2 text-muted-foreground">Načítání ubytování...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="text-center py-20">
+          <p className="text-destructive">Chyba při načítání dat.</p>
+          <Link href="/" className="mt-4 inline-block text-primary underline">Zpět na úvod</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -57,12 +101,12 @@ function ExploreContent() {
                     {property.name}
                   </h2>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                    <span className="flex items-center gap-1"><Users className="h-4 w-4" /> {property.maxGuests}</span>
+                    <span className="flex items-center gap-1"><Users className="h-4 w-4" /> {property.max_guests}</span>
                     <span className="flex items-center gap-1"><Bed className="h-4 w-4" /> {property.bedrooms}</span>
                     <span className="flex items-center gap-1"><Bath className="h-4 w-4" /> {property.bathrooms}</span>
                   </div>
                   <div className="flex justify-between items-center border-t pt-4">
-                    <p className="text-2xl font-bold">${property.pricePerNight}<span className="text-sm font-normal text-muted-foreground">/noc</span></p>
+                    <p className="text-2xl font-bold">${property.price_per_night}<span className="text-sm font-normal text-muted-foreground">/noc</span></p>
                     <Badge variant="outline" className="border-primary text-primary">Detail</Badge>
                   </div>
                 </CardContent>

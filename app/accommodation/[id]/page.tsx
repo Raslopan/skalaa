@@ -25,8 +25,11 @@ import {
   Waves,
   UtensilsCrossed,
   ShowerHead,
+  Loader2,
 } from "lucide-react";
-import { properties } from "@/lib/mock-data";
+import { createClient } from "@/lib/supabase/client";
+import { Property } from "@/lib/types";
+import useSWR from "swr";
 
 const amenityIcons: Record<string, React.ReactNode> = {
   WiFi: <Wifi className="h-5 w-5" />,
@@ -64,12 +67,41 @@ const amenityLabels: Record<string, string> = {
   Patio: "Outdoor Patio",
 };
 
+async function fetchProperty(id: string): Promise<Property | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("properties")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) {
+    console.error("Error fetching property:", error);
+    return null;
+  }
+
+  return data;
+}
+
 export default function AccommodationDetailPage() {
   const params = useParams();
   const id = params.id as string;
-  const property = properties.find((p) => p.id === id);
 
-  if (!property) {
+  const { data: property, error, isLoading } = useSWR<Property | null>(
+    id ? `property-${id}` : null,
+    () => fetchProperty(id)
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-4 text-muted-foreground">Načítání ubytování...</p>
+      </div>
+    );
+  }
+
+  if (error || !property) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background">
         <h1 className="text-2xl font-bold">Ubytování nenalezeno</h1>
@@ -133,7 +165,7 @@ export default function AccommodationDetailPage() {
             <div className="mb-8 flex flex-wrap gap-6 border-b pb-8">
               <div className="flex items-center gap-2">
                 <Users className="h-5 w-5 text-muted-foreground" />
-                <span>{property.maxGuests} hostů</span>
+                <span>{property.max_guests} hostů</span>
               </div>
               <div className="flex items-center gap-2">
                 <Bed className="h-5 w-5 text-muted-foreground" />
@@ -149,7 +181,7 @@ export default function AccommodationDetailPage() {
               <h2 className="mb-4 text-xl font-semibold">O tomto ubytování</h2>
               <p className="leading-relaxed text-muted-foreground">
                 Vychutnejte si pobyt v tomto krásném {property.type === "apartment" ? "apartmánu" : property.type === "villa" ? "vile" : property.type === "house" ? "domě" : "studiu"} v lokalitě {property.location}. 
-                Ideální pro {property.maxGuests} hostů s {property.bedrooms} ložnicemi a {property.bathrooms} koupelnami.
+                Ideální pro {property.max_guests} hostů s {property.bedrooms} ložnicemi a {property.bathrooms} koupelnami.
               </p>
             </div>
 
@@ -176,7 +208,7 @@ export default function AccommodationDetailPage() {
             <Card className="sticky top-8 shadow-lg">
               <CardHeader className="pb-4">
                 <CardTitle className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold text-foreground">${property.pricePerNight}</span>
+                  <span className="text-3xl font-bold text-foreground">${property.price_per_night}</span>
                   <span className="text-base font-normal text-muted-foreground">
                     / noc
                   </span>
@@ -206,18 +238,18 @@ export default function AccommodationDetailPage() {
                 <div className="space-y-2 border-t pt-4">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">
-                      ${property.pricePerNight} x 5 nocí
+                      ${property.price_per_night} x 5 nocí
                     </span>
-                    <span>${property.pricePerNight * 5}</span>
+                    <span>${property.price_per_night * 5}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Servisní poplatek</span>
-                    <span>${Math.round(property.pricePerNight * 0.12)}</span>
+                    <span>${Math.round(property.price_per_night * 0.12)}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2 font-semibold">
                     <span>Celkem</span>
                     <span>
-                      ${property.pricePerNight * 5 + Math.round(property.pricePerNight * 0.12)}
+                      ${property.price_per_night * 5 + Math.round(property.price_per_night * 0.12)}
                     </span>
                   </div>
                 </div>

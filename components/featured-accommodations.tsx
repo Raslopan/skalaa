@@ -4,13 +4,57 @@ import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Star, Heart, MapPin, Users, Bed } from "lucide-react";
+import { Heart, MapPin, Users, Bed, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { properties } from "@/lib/mock-data";
+import { createClient } from "@/lib/supabase/client";
+import { Property } from "@/lib/types";
+import useSWR from "swr";
+
+async function fetchFeaturedProperties(): Promise<Property[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("properties")
+    .select("*")
+    .limit(3);
+
+  if (error) {
+    console.error("Error fetching featured properties:", error);
+    return [];
+  }
+
+  return data || [];
+}
 
 export function FeaturedAccommodations() {
-  // Zobrazíme první 3 nemovitosti z mock-data jako "Featured"
-  const featuredList = properties.slice(0, 3);
+  const { data: featuredList, error, isLoading } = useSWR<Property[]>(
+    "featured-properties",
+    fetchFeaturedProperties
+  );
+
+  if (isLoading) {
+    return (
+      <section className="bg-background py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-2 text-muted-foreground">Načítání ubytování...</span>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (error || !featuredList || featuredList.length === 0) {
+    return (
+      <section className="bg-background py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Nepodařilo se načíst ubytování.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="bg-background py-20">
@@ -69,7 +113,7 @@ export function FeaturedAccommodations() {
                   <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
                     <div className="flex items-center gap-1">
                       <Users className="h-3.5 w-3.5" />
-                      <span>{property.maxGuests} hosté</span>
+                      <span>{property.max_guests} hosté</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Bed className="h-3.5 w-3.5" />
@@ -79,7 +123,7 @@ export function FeaturedAccommodations() {
                   <div className="flex items-baseline justify-between">
                     <div>
                       <span className="text-2xl font-bold text-foreground">
-                        ${property.pricePerNight}
+                        ${property.price_per_night}
                       </span>
                       <span className="text-sm text-muted-foreground"> / noc</span>
                     </div>
