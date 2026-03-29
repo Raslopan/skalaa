@@ -98,11 +98,6 @@ export function SignInDialog({ open, onOpenChange, onSwitchToRegister }: SignInD
               Register
             </button>
           </p>
-          <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-            <p className="font-medium mb-1">Demo accounts:</p>
-            <p>Owner: owner@example.com / owner123</p>
-            <p>Guest: guest@example.com / guest123</p>
-          </div>
         </form>
       </DialogContent>
     </Dialog>

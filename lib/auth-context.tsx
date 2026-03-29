@@ -7,6 +7,8 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import { createClient } from "@/lib/supabase/client";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export type UserRole = "guest" | "owner" | "admin";
 
@@ -24,74 +26,110 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (email: string, password: string, name: string, role: UserRole) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isOwner: boolean;
   isGuest: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock user database
-const mockUsers: (User & { password: string })[] = [
-  {
-    id: "1",
-    email: "owner@example.com",
-    password: "owner123",
-    name: "John Owner",
-    role: "owner",
-    createdAt: new Date(2024, 0, 1),
-  },
-  {
-    id: "2",
-    email: "guest@example.com",
-    password: "guest123",
-    name: "Jane Guest",
-    role: "guest",
-    createdAt: new Date(2024, 0, 15),
-  },
-];
+// Helper to convert Supabase user to our User type
+async function getProfileFromSupabaseUser(supabaseUser: SupabaseUser): Promise<User | null> {
+  const supabase = createClient();
+  
+  // Try to get the profile from the profiles table
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", supabaseUser.id)
+    .single();
 
-const AUTH_STORAGE_KEY = "stayhub_auth";
+  if (profile) {
+    return {
+      id: supabaseUser.id,
+      email: supabaseUser.email || "",
+      name: profile.name || supabaseUser.user_metadata?.name || "User",
+      role: (profile.role as UserRole) || "guest",
+      createdAt: new Date(profile.created_at || supabaseUser.created_at),
+    };
+  }
+
+  // Fallback to user metadata if profile doesn't exist
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email || "",
+    name: supabaseUser.user_metadata?.name || "User",
+    role: (supabaseUser.user_metadata?.role as UserRole) || "guest",
+    createdAt: new Date(supabaseUser.created_at),
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const supabase = createClient();
 
-  // Load user from localStorage on mount
+  // Load user on mount and listen for auth changes
   useEffect(() => {
-    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (stored) {
+    // Get initial session
+    const getInitialSession = async () => {
       try {
-        const parsed = JSON.parse(stored);
-        // Restore the createdAt as a Date object
-        parsed.createdAt = new Date(parsed.createdAt);
-        setUser(parsed);
-      } catch {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
+        const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+        
+        if (supabaseUser) {
+          const profile = await getProfileFromSupabaseUser(supabaseUser);
+          setUser(profile);
+        }
+      } catch (error) {
+        console.error("Error getting initial session:", error);
+      } finally {
+        setIsLoading(false);
       }
-    }
-    setIsLoading(false);
-  }, []);
+    };
+
+    getInitialSession();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === "SIGNED_IN" && session?.user) {
+          const profile = await getProfileFromSupabaseUser(session.user);
+          setUser(profile);
+        } else if (event === "SIGNED_OUT") {
+          setUser(null);
+        }
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase.auth]);
 
   const login = async (
     email: string,
     password: string
   ): Promise<{ success: boolean; error?: string }> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    const foundUser = mockUsers.find(
-      (u) => u.email === email && u.password === password
-    );
+      if (error) {
+        return { success: false, error: error.message };
+      }
 
-    if (!foundUser) {
-      return { success: false, error: "Invalid email or password" };
+      if (data.user) {
+        const profile = await getProfileFromSupabaseUser(data.user);
+        setUser(profile);
+        return { success: true };
+      }
+
+      return { success: false, error: "Login failed" };
+    } catch (error) {
+      return { success: false, error: "An unexpected error occurred" };
     }
-
-    const { password: _, ...userWithoutPassword } = foundUser;
-    setUser(userWithoutPassword);
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(userWithoutPassword));
-    return { success: true };
   };
 
   const register = async (
@@ -100,35 +138,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: string,
     role: UserRole
   ): Promise<{ success: boolean; error?: string }> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
+            `${window.location.origin}/`,
+          data: {
+            name,
+            role,
+          },
+        },
+      });
 
-    // Check if user already exists
-    if (mockUsers.find((u) => u.email === email)) {
-      return { success: false, error: "Email already registered" };
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (data.user) {
+        // The profile will be created automatically via the database trigger
+        const profile = await getProfileFromSupabaseUser(data.user);
+        setUser(profile);
+        return { success: true };
+      }
+
+      return { success: false, error: "Registration failed" };
+    } catch (error) {
+      return { success: false, error: "An unexpected error occurred" };
     }
-
-    // Create new user
-    const newUser: User & { password: string } = {
-      id: String(mockUsers.length + 1),
-      email,
-      password,
-      name,
-      role,
-      createdAt: new Date(),
-    };
-
-    mockUsers.push(newUser);
-
-    const { password: _, ...userWithoutPassword } = newUser;
-    setUser(userWithoutPassword);
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(userWithoutPassword));
-    return { success: true };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
   const value: AuthContextType = {
